@@ -12,7 +12,7 @@ export const DeviceTelemetry = sequelize.define('DeviceTelemetries', {
         allowNull: false,
         references: {
             model: 'Device',
-            key: 'deviceId',
+            key: 'id',
         },
         onDelete: 'CASCADE',
     },
@@ -20,12 +20,36 @@ export const DeviceTelemetry = sequelize.define('DeviceTelemetries', {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,
     },
-    temperature: DataTypes.FLOAT,
-    gas: DataTypes.FLOAT,
-    current: DataTypes.FLOAT,
-    voltage: DataTypes.FLOAT
+    temperature: {
+        type: DataTypes.FLOAT,
+        allowNull: true,
+        comment: 'Temperature in Celsius'
+    },
+    gas: {
+        type: DataTypes.FLOAT,
+        allowNull: true,
+        comment: 'Gas concentration in ppm'
+    },
+    current: {
+        type: DataTypes.FLOAT,
+        allowNull: true,
+        comment: 'Current in Amperes'
+    },
+    voltage: {
+        type: DataTypes.FLOAT,
+        allowNull: true,
+        comment: 'Voltage in Volts'
+    }
 },
     {
         freezeTableName: true,
+        indexes: [
+            {
+                fields: ['deviceId', 'timestamp'], // Composite index for efficient queries
+            },
+            {
+                fields: ['timestamp'], // Index for time-based queries
+            }
+        ]
     }
 );
