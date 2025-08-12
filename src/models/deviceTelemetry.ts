@@ -39,6 +39,26 @@ export const DeviceTelemetry = sequelize.define('DeviceTelemetries', {
         type: DataTypes.FLOAT,
         allowNull: true,
         comment: 'Voltage in Volts'
+    },
+    severity: {
+        type: DataTypes.ENUM('CRITICAL', 'WARNING', 'NORMAL', 'UNKNOWN'),
+        allowNull: true,
+    },
+    possibleCause: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+    },
+    recommendation: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+    },
+    isCurrentExceeded: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+    },
+    analysisTimestamp: {
+        type: DataTypes.DATE,
+        allowNull: true,
     }
 },
     {

@@ -57,20 +57,14 @@ async function runTelemetryCycle(): Promise<void> {
 
 
     // 3. Send the exact same batch to the agent server
-    console.log(`Sending batch of ${telemetryBatch.length} records to agent...`);
+    console.log(`Sending batch of ${telemetryBatch.length} records to server...`);
     try {
         const response = await axios.post(AGENT_API_ENDPOINT, telemetryBatch);
-        console.log('Response from agent server:', response.data);
+        console.log('Response from the server:', response.data);
     } catch (err) {
-        console.error('Error sending data to agent server:', err);
+        console.error('Error sending data to the server:', err);
         // Decide if you still want to save the data even if sending fails
     }
-
-
-    // 4. Save the exact same batch to the database
-    await DeviceTelemetry.bulkCreate(telemetryBatch as []);
-    console.log(`Successfully inserted ${telemetryBatch.length} telemetry records into the database.`);
-
 }
 
 
