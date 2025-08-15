@@ -12,6 +12,7 @@ interface TelemetryReading {
     gas: number;
     current: number;
     voltage: number;
+    isAnalysed?: boolean;
 }
 
 const AGENT_API_ENDPOINT = 'http://localhost:5000/api/telemetry'
@@ -23,6 +24,7 @@ function generateTelemetryData(deviceId: number): Omit<TelemetryReading, 'device
         gas: parseFloat((Math.random() * 100).toFixed(2)), // 0-100 ppm
         current: parseFloat((Math.random() * 20 + 5).toFixed(2)), // 5-25 A
         voltage: parseFloat((Math.random() * 50 + 200).toFixed(2)), // 200-250 V
+        isAnalysed: false // Default value
     };
 }
 
@@ -117,12 +119,12 @@ export async function startTelemetryAgent(): Promise<void> {
         await seedDevicesIfEmpty();
 
         // cron job scheduled to run every 10 minutes
-        // Cron expression: '*/10 * * * *' means every 10 minutes
-        cron.schedule('*/1 * * * *', runTelemetryCycle, {
+        // Cron expression: '*/1 * * * *' means every 1 minutes
+        cron.schedule('* * * * *', runTelemetryCycle, {
             timezone: "Asia/Kolkata"
         });
 
-        console.log('Telemetry cron job scheduled. Will run every 10 minutes.');
+        console.log('Telemetry cron job scheduled. Will run every 1 minute.');
 
         await runTelemetryCycle();
 

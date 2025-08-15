@@ -59,6 +59,11 @@ export const DeviceTelemetry = sequelize.define('DeviceTelemetries', {
     analysisTimestamp: {
         type: DataTypes.DATE,
         allowNull: true,
+    },
+    isAnalysed: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: true,
     }
 },
     {

@@ -4,12 +4,12 @@ import cors from 'cors';
 import { connectDB } from './config/dbConnection';
 import { startTelemetryAgent } from './scheduler/telemetryCronJob';
 import { sequelize } from "./config/db";
-import { analyzeHighCurrent } from './services/agentAI';
 import { DeviceTelemetry } from './models/deviceTelemetry';
-import { Op } from 'sequelize';
+import { analyzeDataBatch } from './services/analyst-agent';
+import { getConversationalResponse } from './services/conversational-agent';
+
 
 const app = express();
-const CURRENT_THRESHOLD = 50;
 
 app.use(express.json())
 app.use(cors({
@@ -17,6 +17,9 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+
+
 
 
 
@@ -34,61 +37,19 @@ async function startServer() {
             try {
                 const dataBatch = req.body;
 
-                console.log(`Recieved total ${dataBatch.length} records from telemetry server.`);
+                // console.log(`Recieved total ${dataBatch.length} records from telemetry server.`);
 
                 //Inserting all telemetry data into the database
-                const insertedRows = await DeviceTelemetry.bulkCreate(dataBatch as [], { returning: true });
-
-
-
-                for (const data of insertedRows) {
-                    const telemetry = data.get();
-                    //console.log("Data received from telemetry database is", telemetry)
-                    if (telemetry.current > CURRENT_THRESHOLD) {
-                        console.warn(`⚠️ High current detected: ${telemetry.current} A for device ${telemetry.deviceId}`);
-
-                        //Send to the agent
-                        const aiAnalysis = await analyzeHighCurrent({
-                            deviceId: telemetry.deviceId,
-                            timestamp: telemetry.timestamp,
-                            temperature: telemetry.temperature,
-                            voltage: telemetry.voltage,
-                            current: telemetry.current,
-                            gas: telemetry.gas,
-                            CURRENT_THRESHOLD: CURRENT_THRESHOLD
-                        });
-
-                        console.log("AI Analysis Result:", aiAnalysis.severity, aiAnalysis.recommendation);
-
-
-                        // Finally updating the database with the AI results
-                        await data.update({
-                            severity: aiAnalysis.severity,
-                            possibleCause: aiAnalysis.possibleCause,
-                            recommendation: aiAnalysis.recommendation,
-                            analysisTimestamp: aiAnalysis.analysisTimestamp
-                        })
-                    }
-                }
-
-                // const totalDataStored = await DeviceTelemetry.findAll({
-                //     where: {
-                //         current: { [Op.gt]: CURRENT_THRESHOLD }
-                //     },
-                //     order: [['timestamp', 'DESC']],
-                //     limit: 50
-                // })
-                // console.log(`🚨 Found ${totalDataStored.length} anomaly records:`);
-                // console.log(totalDataStored.map(row => row.toJSON()));
-
+                //await DeviceTelemetry.bulkCreate(dataBatch as [], { returning: true });
 
                 const totalDataStored = await DeviceTelemetry.findAll({
 
                     order: [['timestamp', 'DESC']],
-                    limit: 50
+                    limit: 10000
                 })
                 console.log(`🚨 Found ${totalDataStored.length} number of records:`);
-                console.log(totalDataStored.map(row => row.toJSON()));
+                //console.log(totalDataStored.map(row => row.toJSON()));
+
 
                 res.status(200).json({ message: "Data stored successfully." });
             } catch (error) {
@@ -98,9 +59,31 @@ async function startServer() {
 
         })
 
+
+        app.post('/api/chat', async (req, res) => {
+            try {
+                const { message, sessionId } = req.body;
+
+                if (!message || !sessionId) {
+                    return res.status(400).json({ error: "Missing 'message' or 'sessionId' in request body" });
+                }
+
+                const response = await getConversationalResponse(message, sessionId);
+                res.status(200).json({ reply: response.content });
+
+            } catch (error) {
+                console.error("❌ Error in chat endpoint:", error);
+                return res.status(500).json({ error: "Internal Server Error" });
+            }
+        })
+
+
+
         await startTelemetryAgent();
         console.log("Telemetry Scheduler stareted successfully");
 
+        await analyzeDataBatch()
+        console.log("Analyst Agent scheduler started successfully");
 
     } catch (error) {
         console.error("❌ Application startup failed:", error);
