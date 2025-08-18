@@ -14,7 +14,7 @@
   "dependencies": {
     "@google-cloud/storage": "^7.16.0",
     "@google/generative-ai": "^0.24.1",
-    "@langchain/community": "^0.3.50",
+    "@langchain/community": "^0.3.51",
     "@langchain/core": "^0.3.70",
     "@langchain/google-genai": "^0.2.16",
     "@langchain/langgraph": "^0.4.5",

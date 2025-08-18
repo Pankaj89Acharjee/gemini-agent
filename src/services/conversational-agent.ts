@@ -25,10 +25,23 @@ const messageHistory = new ChatMessageHistory();
 async function classifyQuery(input: string): Promise<{ type: 'simple' | 'complex', action?: string }> {
     const lowerInput = input.toLowerCase();
     
-    // First, check for schema-related queries that should be complex
+    // First, check for telemetry analysis queries (these should be complex)
+    if (lowerInput.includes('maximum') || lowerInput.includes('max') || lowerInput.includes('average') || 
+        lowerInput.includes('avg') || lowerInput.includes('range') || lowerInput.includes('performance') ||
+        lowerInput.includes('current') || lowerInput.includes('temperature') || lowerInput.includes('voltage')) {
+        return { type: 'complex' };
+    }
+    
+    // Check for schema-related queries that should be complex
     if (lowerInput.includes('table') || lowerInput.includes('schema') || lowerInput.includes('structure') || 
         lowerInput.includes('column') || lowerInput.includes('database structure') || 
         lowerInput.includes('how many tables') || lowerInput.includes('what tables')) {
+        return { type: 'complex' };
+    }
+    
+    // Check for device-specific queries that should be complex (but not telemetry analysis)
+    if ((lowerInput.includes('device') || lowerInput.includes('devices')) && 
+        !lowerInput.includes('current') && !lowerInput.includes('temperature') && !lowerInput.includes('voltage')) {
         return { type: 'complex' };
     }
     
@@ -48,20 +61,26 @@ async function classifyQuery(input: string): Promise<{ type: 'simple' | 'complex
 User question: "${input}"
 
 Simple queries (use quick tools):
-- count_records: For questions about total/how many telemetry records (NOT tables)
+- count_records: For questions about total/how many telemetry records (NOT devices)
 - latest_data: For questions about recent/latest telemetry data  
 - active_devices: For questions about active devices
 - high_temperature: For questions about high temperature records
 - exceeded_current: For questions about current threshold violations
 
 Complex queries (need advanced reasoning):
+- Questions about specific device metrics (current, temperature, voltage for specific devices)
 - Questions about database structure, tables, schema
+- Questions about devices (count, list, status) - but NOT specific device metrics
 - Questions requiring multiple steps
 - Questions about data relationships
 - Questions requiring custom SQL
 - Questions requiring analysis or comparison
 
-IMPORTANT: If the question asks about "tables", "schema", "database structure", or "how many tables", it should be classified as COMPLEX, not simple.
+IMPORTANT: 
+- If the question asks about "tables", "schema", "database structure", or "how many tables", it should be classified as COMPLEX
+- If the question asks about "devices" or "how many devices" (but NOT specific metrics), it should be classified as COMPLEX
+- If the question asks about "maximum current", "average temperature", "voltage range" for a specific device, it should be classified as COMPLEX
+- Only count telemetry records for "count_records" action
 
 Respond with ONLY: "simple:action_name" or "complex" (e.g., "simple:count_records" or "complex")`;
 
@@ -130,27 +149,100 @@ async function handleComplexQuery(input: string): Promise<string> {
             }
         }
 
+        // Check for telemetry analysis queries (specific device metrics) - MUST COME BEFORE DEVICE QUERIES
+        if (lowerInput.includes('maximum') || lowerInput.includes('max') || lowerInput.includes('current') || 
+            lowerInput.includes('temperature') || lowerInput.includes('voltage') || lowerInput.includes('performance')) {
+            console.log("📊 Detected telemetry analysis query, using telemetry analysis tool");
+            const telemetryTool = tools.find(t => t.name === 'smartweld_telemetry_analysis');
+            if (telemetryTool) {
+                // Extract device ID from the query
+                const deviceIdMatch = input.match(/ID:\s*([A-Z0-9]+)/i) || input.match(/device\s+([A-Z0-9]+)/i);
+                console.log("🔍 Device ID match:", deviceIdMatch);
+                if (deviceIdMatch) {
+                    const deviceId = deviceIdMatch[1];
+                    console.log("📱 Extracted device ID:", deviceId);
+                    
+                    if (lowerInput.includes('current')) {
+                        console.log("⚡ Calling max_current analysis for device:", deviceId);
+                        const currentAnalysis = await telemetryTool._call(`max_current:${deviceId}`);
+                        return currentAnalysis;
+                    } else if (lowerInput.includes('temperature')) {
+                        console.log("🌡️ Calling avg_temperature analysis for device:", deviceId);
+                        const tempAnalysis = await telemetryTool._call(`avg_temperature:${deviceId}`);
+                        return tempAnalysis;
+                    } else if (lowerInput.includes('voltage')) {
+                        console.log("⚡ Calling voltage_range analysis for device:", deviceId);
+                        const voltageAnalysis = await telemetryTool._call(`voltage_range:${deviceId}`);
+                        return voltageAnalysis;
+                    } else if (lowerInput.includes('performance')) {
+                        console.log("📈 Calling performance_summary analysis for device:", deviceId);
+                        const performanceAnalysis = await telemetryTool._call(`performance_summary:${deviceId}`);
+                        return performanceAnalysis;
+                    } else {
+                        // Default to current analysis for general metric queries
+                        console.log("🔧 Defaulting to max_current analysis for device:", deviceId);
+                        const currentAnalysis = await telemetryTool._call(`max_current:${deviceId}`);
+                        return currentAnalysis;
+                    }
+                } else {
+                    console.log("❌ No device ID found in query");
+                    return "Please specify a device ID (e.g., 'What is the maximum current for device WM001?')";
+                }
+            } else {
+                console.log("❌ Telemetry analysis tool not found");
+            }
+        }
+
+        // Check for device-related queries (but NOT telemetry analysis)
+        if ((lowerInput.includes('device') || lowerInput.includes('devices')) && 
+            !lowerInput.includes('current') && !lowerInput.includes('temperature') && !lowerInput.includes('voltage') && 
+            !lowerInput.includes('maximum') && !lowerInput.includes('max') && !lowerInput.includes('performance')) {
+            console.log("📱 Detected device query, using device info tool");
+            const deviceTool = tools.find(t => t.name === 'smartweld_device_info');
+            if (deviceTool) {
+                // Check for specific active devices query first
+                if (lowerInput.includes('active device') || lowerInput.includes('active devices')) {
+                    const activeDevices = await deviceTool._call('active_devices');
+                    return activeDevices;
+                } else if (lowerInput.includes('how many') || lowerInput.includes('count')) {
+                    const deviceCount = await deviceTool._call('count_devices');
+                    return deviceCount;
+                } else if (lowerInput.includes('list') || lowerInput.includes('show') || lowerInput.includes('all')) {
+                    const deviceList = await deviceTool._call('list_devices');
+                    return deviceList;
+                } else if (lowerInput.includes('status')) {
+                    const deviceStatus = await deviceTool._call('device_status');
+                    return deviceStatus;
+                } else {
+                    // Default to count for general device queries
+                    const deviceCount = await deviceTool._call('count_devices');
+                    return deviceCount;
+                }
+            }
+        }
+
         // Create a custom multi-step reasoning agent for other complex queries
-        const reasoningPrompt = `You are an advanced SmartWeld assistant that can perform multi-step reasoning to answer complex questions.
+        const reasoningPrompt = `
+        You are an advanced SmartWeld assistant that can perform multi-step reasoning to answer complex questions.
 
-Available tools:
-${tools.map(t => `- ${t.name}: ${t.description}`).join('\n')}
+        Available tools:
+        ${tools.map(t => `- ${t.name}: ${t.description}`).join('\n')}
 
-User question: "${input}"
+        User question: "${input}"
 
-Think step by step about how to answer this question. You can use multiple tools if needed.
+        Think step by step about how to answer this question. You can use multiple tools if needed.
 
-Step 1: Determine what information you need
-Step 2: Choose the appropriate tool(s) to get that information
-Step 3: Execute the tool(s) and analyze the results
-Step 4: Provide a comprehensive answer
+        Step 1: Determine what information you need
+        Step 2: Choose the appropriate tool(s) to get that information
+        Step 3: Execute the tool(s) and analyze the results
+        Step 4: Provide a comprehensive answer
 
-Available tool actions:
-- smartweld_quick_query: Use for 'count_records', 'latest_data', 'active_devices', 'high_temperature', 'exceeded_current'
-- smartweld_sql_query: Use for custom SQL queries (only SELECT statements)
-- smartweld_database_info: Use for 'schema', 'tables', 'sample_data'
+        Available tool actions:
+        - smartweld_quick_query: Use for 'count_records', 'latest_data', 'active_devices', 'high_temperature', 'exceeded_current'
+        - smartweld_sql_query: Use for custom SQL queries (only SELECT statements)
+        - smartweld_database_info: Use for 'schema', 'tables', 'sample_data'
 
-Respond with your reasoning and the tools you want to use.`;
+        Respond with your reasoning and the tools you want to use.`;
 
         const reasoningResponse = await model.invoke([["human", reasoningPrompt]]);
         console.log("🧠 Reasoning:", reasoningResponse.content);
@@ -166,12 +258,13 @@ Respond with your reasoning and the tools you want to use.`;
                 console.log("📊 Schema info retrieved");
 
                 // Now ask for the specific query
-                const followUpPrompt = `Based on this schema information:
-${schemaInfo}
+                const followUpPrompt = `
+                Based on this schema information:
+                ${schemaInfo}
 
-Now answer the user's question: "${input}"
+                Now answer the user's question: "${input}"
 
-Use the appropriate tool to get the specific data needed.`;
+                Use the appropriate tool to get the specific data needed.`;
 
                 const followUpResponse = await model.invoke([["human", followUpPrompt]]);
                 const followUp = followUpResponse.content.toString();
@@ -202,18 +295,19 @@ Use the appropriate tool to get the specific data needed.`;
         }
 
         // If all else fails, provide a helpful response
-        return `I understand you're asking: "${input}". This is a complex query that requires multi-step reasoning. 
+        return `
+        I understand you're asking: "${input}". This is a complex query that requires multi-step reasoning. 
 
-Available tools I can use:
-- Database schema information
-- Custom SQL queries
-- Quick data queries
+        Available tools I can use:
+        - Database schema information
+        - Custom SQL queries
+        - Quick data queries
 
-Please try rephrasing your question to be more specific, or ask about:
-- Database structure (tables, columns)
-- Specific data counts or summaries
-- Recent telemetry data
-- Device information`;
+        Please try rephrasing your question to be more specific, or ask about:
+        - Database structure (tables, columns)
+        - Specific data counts or summaries
+        - Recent telemetry data
+        - Device information`;
 
     } catch (error) {
         console.error("❌ Error in advanced agent:", error);
