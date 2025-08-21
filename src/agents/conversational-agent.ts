@@ -1,150 +1,139 @@
-/// <reference types="node" />
 import 'dotenv/config';
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
-import { ChatMessageHistory } from "langchain/memory";
-import { getSQLToolkit } from "./sql-toolkit";
-import { ToolInterface } from '@langchain/core/tools';
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { ListTablesTool } from '../tools/listTableTool';
+import { GetTableSchemaTool } from '../tools/getTableSchemaTool';
 import { langchainTool } from '../tools/langchainTool';
-import { listDatabaseTables } from '../tools/listTableTool';
-import { getTableSchema } from '../tools/getTableSchemaTool';
 import sequelize from '../config/remoteDBConnection';
+import { DynamicTool } from '@langchain/core/tools';
 
-const LLM_Model = process.env.LLM_MODEL || 'gemini-1.5-flash';
+// Environment setup
+const LLM_Model = process.env.LLM_MODEL || 'gemini-2.0-flash';
 const geminiApiKey = process.env.GEMINI_API_KEY;
+
 if (!geminiApiKey) {
     throw new Error("GEMINI_API_KEY environment variable is not set.");
 }
 
-export const model = new ChatGoogleGenerativeAI({
+// Initialize LLM model
+const createLLM = () => new ChatGoogleGenerativeAI({
     model: LLM_Model,
     apiKey: geminiApiKey,
-    temperature: 0, // More deterministic output
-    maxOutputTokens: 2048, // Increased for multi-step reasoning
+    temperature: 0,
+    maxOutputTokens: 2048,
 });
 
-const messageHistory = new ChatMessageHistory();
-
-// Enhanced classifier for better query routing
-async function classifyQuery(input: string): Promise<{ type: 'simple' | 'complex' | 'tool_specific', action?: string, tool?: string }> {
-    const lowerInput = input.toLowerCase();
-
-    // Check for specific tool requests
-    if (lowerInput.includes('list tables') || lowerInput.includes('show tables') || lowerInput.includes('what tables')) {
-        return { type: 'tool_specific', tool: 'listTables' };
-    }
-
-    if (lowerInput.includes('schema') || lowerInput.includes('structure') || lowerInput.includes('columns')) {
-        return { type: 'tool_specific', tool: 'getSchema' };
-    }
-
-    // Check for SQL/database analysis queries
-    if (lowerInput.includes('sql') || lowerInput.includes('query') || lowerInput.includes('select') ||
-        lowerInput.includes('analyze') || lowerInput.includes('data') || lowerInput.includes('find')) {
-        return { type: 'tool_specific', tool: 'langchain' };
-    }
-
-    // Check for simple queries
-    if (lowerInput.includes('count') || lowerInput.includes('how many') || lowerInput.includes('latest')) {
-        return { type: 'simple', action: 'count_records' };
-    }
-
-    // Default to complex for other queries
-    return { type: 'complex' };
-}
-
-// Handle tool-specific queries
-async function handleToolSpecificQuery(input: string, tool: string): Promise<string> {
-    try {
-        switch (tool) {
-            case 'listTables':
-                return await listDatabaseTables(sequelize);
-
-            case 'getSchema':
-                // Extract table name from input
-                const tableMatch = input.match(/(?:table|schema|structure)\s+(?:of\s+)?['"]?(\w+)['"]?/i);
-                if (tableMatch) {
-                    const tableName = tableMatch[1];
-                    return await getTableSchema(sequelize, tableName);
-                } else {
-                    return "Please specify a table name. Example: 'Show me the schema of users table'";
-                }
-
-            case 'langchain':
-                const response = await langchainTool(input);
-                return response.content;
-
-            default:
-                return "Unknown tool requested";
+// Functional SQL Analysis Tool
+const createSQLAnalysisTool = () => new DynamicTool({
+    name: "sql-analysis-tool",
+    description: "Execute SQL queries and perform data analysis using natural language. Use for complex queries, data analysis, joins, aggregations, and finding specific information in the database.",
+    func: async (message) => {
+        try {
+            const response = await langchainTool(message);
+            return response.content || "No data found.";
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            return `SQL analysis error: ${errorMessage}`;
         }
-    } catch (error) {
-        console.error(`Error in tool ${tool}:`, error);
-        return `Error executing ${tool}: ${error instanceof Error ? error.message : String(error)}`;
     }
-}
+});
 
-// Lightweight agent for simple queries
-async function handleSimpleQuery(input: string, action: string): Promise<string> {
+// Create tools
+const createTools = () => [
+    new ListTablesTool(sequelize),
+    new GetTableSchemaTool(sequelize),
+    createSQLAnalysisTool()
+];
+
+// System message for the agent
+const SYSTEM_MESSAGE = `
+
+You are SmartWeld AI - an intelligent database assistant.
+
+TOOL SELECTION RULES:
+📋 Use "list-database-tables" for:
+   - "show tables", "list tables", "what tables exist"
+   - "table names", "database structure overview"
+
+🔍 Use "get-table-schema" for:
+   - "schema of X", "structure of X table", "columns in X"
+   - "what fields does X have", "describe X table"
+
+⚡ Use "sql-analysis-tool" for:
+   - Data queries: "find", "show me", "get", "retrieve"
+   - Analysis: "count", "sum", "average", "maximum", "minimum"
+   - Filters: "where", "with condition", "that have"
+   - Complex queries involving multiple tables or conditions
+
+RESPONSE GUIDELINES:
+- Always explain what tool you're using and why
+- Provide clear, helpful answers
+- If uncertain about table names, list tables first
+- For complex queries, break down your approach`;
+
+// Create agent function
+const createAgent = async () => {
+    const llm = createLLM();
+    const tools = createTools();
+
+    return createReactAgent({
+        llm,
+        tools,
+        messageModifier: SYSTEM_MESSAGE
+    });
+};
+
+// Main conversation handler
+export const getConversationalResponse = async (message: string, sessionId = null) => {
+    console.log("🚀 SmartWeld AI - Processing:", message);
+
     try {
-        const toolkit = await getSQLToolkit(model);
-        const tools = toolkit.getTools();
-        const quickTool = tools.find(t => t.name === 'smartweld_quick_query');
+        const agent = await createAgent();
 
-        if (quickTool) {
-            return await quickTool._call(action);
-        } else {
-            return "Error: Quick query tool not available";
-        }
-    } catch (error) {
-        console.error("Error in simple query:", error);
-        return `Error: ${error instanceof Error ? error.message : String(error)}`;
-    }
-}
+        const result = await agent.invoke({
+            messages: [["user", message]]
+        });
 
-// Robust advanced agent for complex queries
-async function handleComplexQuery(input: string): Promise<string> {
-    try {
-        // For complex queries, use the langchain tool as it's most capable
-        const response = await langchainTool(input);
-        return response.content;
-    } catch (error) {
-        console.error("❌ Error in advanced agent:", error);
-        return `Error processing complex query: ${error instanceof Error ? error.message : String(error)}`;
-    }
-}
+        // Extract final response from the message chain
+        const messages = result.messages || [];
+        const finalMessage = messages[messages.length - 1];
+        const content = finalMessage?.content || "I couldn't generate a response.";
 
-export async function getConversationalResponse(input: string, sessionId: string): Promise<any> {
-    console.log("🚀 Enhanced Agent - User message:", input, "Session:", sessionId);
-
-    try {
-        // First, classify the query
-        const classification = await classifyQuery(input);
-        console.log("📊 Query classification:", classification);
-
-        if (classification.type === 'tool_specific' && classification.tool) {
-            // Use specific tools for targeted queries
-            console.log("🔧 Using specific tool:", classification.tool);
-            const result = await handleToolSpecificQuery(input, classification.tool);
-            return { content: result };
-        } else if (classification.type === 'simple' && classification.action) {
-            // Use lightweight agent for simple queries
-            console.log("⚡ Using lightweight agent for simple query");
-            const result = await handleSimpleQuery(input, classification.action);
-            return { content: result };
-        } else {
-            // Use advanced agent for complex queries
-            console.log("🧠 Using advanced agent for complex query");
-            const result = await handleComplexQuery(input);
-            return { content: result };
-        }
-
-    } catch (error) {
-        console.error("❌ Error in enhanced agent:", error);
-
-        // Fallback to simple response if all agents fail
+        console.log("✅ Response generated");
         return {
-            content: `I encountered an error while processing your request: ${error instanceof Error ? error.message : String(error)}. Please try rephrasing your question.`
+            content: typeof content === 'string' ? content : JSON.stringify(content),
+            sessionId
+        };
+
+    } catch (error) {
+        console.error("❌ Agent Error:", error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        return {
+            content: `I encountered an error: ${errorMessage}. Please try rephrasing your question.`,
+            sessionId
         };
     }
-}
+};
+
+// Utility function to test the agent
+export const testAgent = async () => {
+    const testQueries = [
+        "What tables are in the database?",
+        "Show me the schema of the Device table",
+        "Find the maximum current for device named 'Main Welding Unit'"
+    ];
+
+    for (const query of testQueries) {
+        console.log(`\n🧪 Testing: "${query}"`);
+        const result = await getConversationalResponse(query);
+        console.log("📤 Response:", result.content);
+        console.log("─".repeat(50));
+    }
+};
+
+// Export for external use
+export default {
+    getConversationalResponse,
+    testAgent
+};

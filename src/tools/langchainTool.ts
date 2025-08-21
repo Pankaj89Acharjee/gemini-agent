@@ -83,6 +83,3 @@ export const langchainTool = async (clientQuestion: string) => {
       }
 };
 
-// Add metadata for LangChain integration
-langchainTool.name = "langchain-sql-tool";
-langchainTool.description = "Useful for executing SQL queries and analyzing database data using natural language questions.";

@@ -1,14 +1,10 @@
 import 'dotenv/config'
 import express from 'express';
 import cors from 'cors';
-import { connectDB } from './config/dbConnection';
 import { startTelemetryAgent } from './scheduler/telemetryCronJob';
-import { sequelize } from "./config/db";
 import { DeviceTelemetry } from './models/deviceTelemetry';
 import { analyzeDataBatch } from './agents/analyst-agent';
-import { getConversationalResponse } from './agents/conversational-agent';
-import { langchainTool } from './agents/langchainTool';
-import { testDbConnection } from './config/remoteDBConnection';
+
 
 
 
@@ -29,7 +25,7 @@ app.use(cors({
 
 async function startServer() {
     try {
- // Coonect to the Remote DB that is in PostgreSQL
+        // Coonect to the Remote DB that is in PostgreSQL
 
 
         // await connectDB()
@@ -37,7 +33,7 @@ async function startServer() {
         // await sequelize.sync(); // To alter the DB up-to-date with the models
         // console.log("Connected to the database successfully");
 
-       
+
 
         app.post('/api/telemetry', async (req, res) => {
             try {
@@ -66,11 +62,11 @@ async function startServer() {
         })
 
 
-        
 
 
 
-       
+
+
 
         await startTelemetryAgent();
         console.log("Telemetry Scheduler stareted successfully");
