@@ -1,7 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { getConversationalResponse } from './services/conversational-agent';
+import { getConversationalResponse } from './agents/conversational-agent';
+import { langchainTool } from './tools/langchainTool';
+import { testDbConnection } from './config/remoteDBConnection';
+
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -45,10 +49,33 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`🚀 SmartWeld Agentic AI Server running on port ${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/health`);
-    console.log(`💬 Chat endpoint: http://localhost:${PORT}/api/chat`);
+// Query database endpoint
+app.post('/api/queryDatabase', async (req, res) => {
+    try {
+        const { query } = req.body;
+        const response = await langchainTool(query);
+        res.status(200).json({ reply: response.content });
+    } catch (error) {
+        console.error('❌ Error in queryDatabase endpoint:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
+
+// Start server
+(async () => {
+    try {
+       
+        await testDbConnection();
+
+        app.listen(PORT, () => {
+            console.log(`🚀 SmartWeld Agentic AI Server running on port ${PORT}`);
+            console.log(`📊 Health check: http://localhost:${PORT}/health`);
+            console.log(`💬 Chat endpoint: http://localhost:${PORT}/api/chat`);
+            console.log(`🗂️ Query endpoint: http://localhost:${PORT}/api/queryDatabase`);
+        });
+    } catch (err) {
+        console.error('❌ Startup failed:', err);
+        process.exit(1);
+    }
+})();
 

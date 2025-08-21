@@ -5,8 +5,11 @@ import { connectDB } from './config/dbConnection';
 import { startTelemetryAgent } from './scheduler/telemetryCronJob';
 import { sequelize } from "./config/db";
 import { DeviceTelemetry } from './models/deviceTelemetry';
-import { analyzeDataBatch } from './services/analyst-agent';
-import { getConversationalResponse } from './services/conversational-agent';
+import { analyzeDataBatch } from './agents/analyst-agent';
+import { getConversationalResponse } from './agents/conversational-agent';
+import { langchainTool } from './agents/langchainTool';
+import { testDbConnection } from './config/remoteDBConnection';
+
 
 
 const app = express();
@@ -26,12 +29,15 @@ app.use(cors({
 
 async function startServer() {
     try {
-        await connectDB()
-        await sequelize.getQueryInterface().dropTable('Device_backup').catch(() => { });
-        await sequelize.sync(); // To alter the DB up-to-date with the models
-        console.log("Connected to the database successfully");
+ // Coonect to the Remote DB that is in PostgreSQL
 
 
+        // await connectDB()
+        // await sequelize.getQueryInterface().dropTable('Device_backup').catch(() => { });
+        // await sequelize.sync(); // To alter the DB up-to-date with the models
+        // console.log("Connected to the database successfully");
+
+       
 
         app.post('/api/telemetry', async (req, res) => {
             try {
@@ -60,24 +66,11 @@ async function startServer() {
         })
 
 
-        app.post('/api/chat', async (req, res) => {
-            try {
-                const { message, sessionId } = req.body;
-
-                if (!message || !sessionId) {
-                    return res.status(400).json({ error: "Missing 'message' or 'sessionId' in request body" });
-                }
-
-                const response = await getConversationalResponse(message, sessionId);
-                res.status(200).json({ reply: response.content });
-
-            } catch (error) {
-                console.error("❌ Error in chat endpoint:", error);
-                return res.status(500).json({ error: "Internal Server Error" });
-            }
-        })
+        
 
 
+
+       
 
         await startTelemetryAgent();
         console.log("Telemetry Scheduler stareted successfully");
