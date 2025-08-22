@@ -153,7 +153,7 @@ const createAgent = async () => {
     });
 };
 
-// Main conversation handler (Functional Component)
+// Main conversation handler Agent Function
 export const getConversationalResponse = async (input: string, sessionId = null) => {
     console.log("🚀 SmartWeld AI - Processing:", input);
 

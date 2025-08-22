@@ -5,7 +5,7 @@ import { getConversationalResponse } from './agents/conversational-agent';
 import { testDbConnection } from './config/remoteDBConnection';
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // Middleware
 app.use(cors());
@@ -22,7 +22,8 @@ app.get('/health', (req, res) => {
 
 // Single chat endpoint that uses the AI agent with all tools
 app.post('/api/chat', async (req, res) => {
-    try {
+    console.log("Req.body is", req.body) 
+    try {        
         const { message, sessionId } = req.body;
         
         if (!message) {
